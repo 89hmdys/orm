@@ -55,5 +55,5 @@ func (this *transaction) Query(v interface{}, sql string, args ...interface{}) e
 		return err
 	}
 
-	return build(rows, v)
+	return convert(rows, v)
 }

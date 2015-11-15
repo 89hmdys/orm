@@ -55,5 +55,5 @@ func (this *client) Query(v interface{}, sql string, args ...interface{}) error 
 		return err
 	}
 
-	return build(rows, v)
+	return convert(rows, v)
 }

@@ -34,7 +34,10 @@ func NewDefault(connStr string) (Client, error) {
 	return &client{Connection: connection}, nil
 }
 
-func convertAssign(elemType reflect.Type, keys []string, values []interface{}) (reflect.Value, error) {
+func buildElement(elemType reflect.Type, keys []string, values []interface{}) (reflect.Value, error) {
+
+	//TODO 还对Struct需要支持bool,datetime,关于datetime，考虑在属性后新增tag写明转换格式
+
 	switch elemType.Kind() {
 	case reflect.Map:
 		{
@@ -81,7 +84,7 @@ func convertAssign(elemType reflect.Type, keys []string, values []interface{}) (
 	}
 }
 
-func build(rows *sql.Rows, v interface{}) error {
+func convert(rows *sql.Rows, v interface{}) error {
 
 	vt := reflect.TypeOf(v)
 
@@ -109,7 +112,7 @@ func build(rows *sql.Rows, v interface{}) error {
 				if err := rows.Scan(scanArgs...); err != nil {
 					return err
 				}
-				elemValue, err := convertAssign(elemType, cols, values)
+				elemValue, err := buildElement(elemType, cols, values)
 
 				if err != nil {
 					return err
@@ -125,7 +128,7 @@ func build(rows *sql.Rows, v interface{}) error {
 				if err := rows.Scan(scanArgs...); err != nil {
 					return err
 				}
-				elemValue, err := convertAssign(vt, cols, values)
+				elemValue, err := buildElement(vt, cols, values)
 
 				if err != nil {
 					return err
