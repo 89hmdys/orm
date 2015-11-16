@@ -5,7 +5,6 @@ import (
 	"errors"
 	. "orm"
 	"reflect"
-	"strings"
 )
 
 type client struct {
@@ -27,7 +26,7 @@ func (this *client) Close() error {
 
 func (this *client) Execute(sql string, args ...interface{}) (sql.Result, error) {
 
-	newSql, args := analysisSQL(sql, args...)
+	newSql, newArgs := analysisSQL(sql, args)
 
 	stmt, err := this.Connection.Prepare(newSql)
 	if err != nil {
@@ -36,10 +35,12 @@ func (this *client) Execute(sql string, args ...interface{}) (sql.Result, error)
 
 	defer stmt.Close()
 
-	return execute(stmt, args...)
+	return execute(stmt, newArgs...)
 }
 
 func (this *client) Query(v interface{}, sql string, args ...interface{}) error {
+
+	newSql, newArgs := analysisSQL(sql, args)
 
 	vt := reflect.TypeOf(v)
 
@@ -47,14 +48,14 @@ func (this *client) Query(v interface{}, sql string, args ...interface{}) error 
 		return errors.New("v is not ptr")
 	}
 
-	stmt, err := this.Connection.Prepare(sql)
+	stmt, err := this.Connection.Prepare(newSql)
 	if err != nil {
 		return err
 	}
 
 	defer stmt.Close()
 
-	rows, err := stmt.Query(args...)
+	rows, err := stmt.Query(newArgs...)
 
 	if err != nil {
 		return err

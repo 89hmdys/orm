@@ -12,13 +12,18 @@ import (
 )
 
 const (
-	true              int64          = 1
-	defaultMaxIdle    int            = 10
-	defaultMaxOpen    int            = 100
-	driver            string         = "mysql"
-	prefix            string         = "#"
-	analysisSQLRegexp *regexp.Regexp = regexp.MustCompile("(?#[a-zA-Z0-9]+)")
+	true           int64  = 1
+	defaultMaxIdle int    = 10
+	defaultMaxOpen int    = 100
+	driver         string = "mysql"
+	prefix         string = "#"
 )
+
+var analysisSQLRegexp *regexp.Regexp
+
+func init() {
+	analysisSQLRegexp = regexp.MustCompile("#[a-zA-Z0-9]+")
+}
 
 func New(connStr string, maxIdle, maxOpen int) (Client, error) {
 	connection, err := sql.Open(driver, connStr)
@@ -75,7 +80,7 @@ func buildElement(elemType reflect.Type, keys []string, values []interface{}) (r
 						{
 							val, ok := v.Interface().(int64)
 							if !ok {
-								panic("convert to bool fail,database field is not number")
+								errors.New("orm error:convert to bool fail,database field must be number")
 							}
 							field.SetBool(val == true)
 						}
@@ -86,12 +91,12 @@ func buildElement(elemType reflect.Type, keys []string, values []interface{}) (r
 							format := fieldType.Tag.Get("format")
 
 							if format == "" {
-								panic("no specified date format")
+								errors.New("orm error:no specified date format")
 							}
 
 							datetime, err := time.ParseInLocation(format, string(v.Interface().([]byte)), time.Local)
 							if err != nil {
-								panic("parse fail , check your format")
+								errors.New(fmt.Sprintf("orm error:parse time fail,%s", err.Error()))
 							}
 
 							field.Set(reflect.ValueOf(datetime))
@@ -106,14 +111,14 @@ func buildElement(elemType reflect.Type, keys []string, values []interface{}) (r
 						}
 					}
 				} else {
-					errors.New(fmt.Sprintf("%s can not set", k))
+					errors.New(fmt.Sprintf("orm error:%s set fail", k))
 				}
 			}
 			return elemValue, nil
 		}
 	default:
 		{
-			return reflect.Value{}, errors.New("struct map only")
+			return reflect.Value{}, errors.New("orm error:only support struct and map as element")
 		}
 	}
 }
@@ -173,38 +178,41 @@ func convert(rows *sql.Rows, v interface{}) error {
 	default:
 		{
 			if rows.Next() {
+				colsLen := len(cols)
+				if colsLen != 1 {
+					return errors.New(fmt.Sprintf("orm error : expect 1 columns,but got %d.", colsLen))
+				}
 				if err := rows.Scan(scanArgs...); err != nil {
 					return err
 				}
-
-				if len(cols) == 1 {
-					reflect.ValueOf(v).Elem().Set(reflect.ValueOf(values[0]))
-				} else {
-					return errors.New("para have to be 1")
-				}
+				reflect.ValueOf(v).Elem().Set(reflect.ValueOf(values[0]))
 			}
 		}
 	}
 	return nil
 }
 
-func analysisSQL(sql string, args ...interface{}) (string, []interface{}) {
+func analysisSQL(sql string, args []interface{}) (string, []interface{}) {
 
 	keys := analysisSQLRegexp.FindAllString(sql, -1)
 
 	sql = analysisSQLRegexp.ReplaceAllString(sql, "?")
 
-	len := len(args)
+	argsLen := len(args)
 
-	switch len {
+	want := len(keys)
+
+	switch argsLen {
 	case 0:
 		{
 			break
 		}
 	case 1:
 		{
-			argValue := reflect.ValueOf(args[0])
 			var argArray []interface{}
+
+			argValue := reflect.ValueOf(args[0])
+
 			switch argValue.Kind() {
 			case reflect.Ptr:
 				{
@@ -212,12 +220,20 @@ func analysisSQL(sql string, args ...interface{}) (string, []interface{}) {
 				}
 			case reflect.Struct:
 				{
+					if len(keys) != argValue.NumField() {
+						panic(fmt.Sprintf("sql: expected %d arguments, got %d", want, len(args)))
+					}
+
 					for _, v := range keys {
 						argArray = append(argArray, argValue.FieldByName(strings.TrimPrefix(v, prefix)).Interface())
 					}
 				}
 			case reflect.Map:
 				{
+					if len(keys) != argValue.Len() {
+						panic(fmt.Sprintf("sql: expected %d arguments, got %d", want, len(args)))
+					}
+
 					for _, v := range keys {
 						key := reflect.ValueOf(strings.TrimPrefix(v, prefix))
 						argArray = append(argArray, argValue.MapIndex(key).Interface())
@@ -225,17 +241,23 @@ func analysisSQL(sql string, args ...interface{}) (string, []interface{}) {
 				}
 			default:
 				{
-					argArray = append(argArray, args[0])
+					if len(keys) != argsLen {
+						panic(fmt.Sprintf("sql: expected %d arguments, got %d", want, len(args)))
+					}
+					argArray = args
 				}
 			}
 			return sql, argArray
 		}
 	default:
 		{
+			if len(keys) != argsLen {
+				panic(fmt.Sprintf("sql: expected %d arguments, got %d", want, len(args)))
+			}
 			return sql, args
 		}
 	}
-
+	return sql, args
 }
 
 func execute(stmt *sql.Stmt, args ...interface{}) (sql.Result, error) {

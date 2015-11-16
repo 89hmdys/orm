@@ -36,20 +36,22 @@ func (this *transaction) Execute(query string, args ...interface{}) (sql.Result,
 
 func (this *transaction) Query(v interface{}, sql string, args ...interface{}) error {
 
+	newSql, newArgs := analysisSQL(sql, args)
+
 	vt := reflect.TypeOf(v)
 
 	if vt.Kind() != reflect.Ptr {
 		return errors.New("v is not ptr")
 	}
 
-	stmt, err := this.Tx.Prepare(sql)
+	stmt, err := this.Tx.Prepare(newSql)
 	if err != nil {
 		return err
 	}
 
 	defer stmt.Close()
 
-	rows, err := stmt.Query(args...)
+	rows, err := stmt.Query(newArgs...)
 
 	if err != nil {
 		return err
