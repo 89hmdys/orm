@@ -3,7 +3,7 @@ package mysql
 import (
 	"database/sql"
 	"errors"
-	. "orm"
+	. "github.com/89hmdys/orm"
 	"reflect"
 )
 
@@ -42,9 +42,9 @@ func (this *client) Query(v interface{}, sql string, args ...interface{}) error 
 
 	newSql, newArgs := analysisSQL(sql, args)
 
-	vt := reflect.TypeOf(v)
+	vvPtr := reflect.ValueOf(v)
 
-	if vt.Kind() != reflect.Ptr {
+	if vvPtr.Kind() != reflect.Ptr {
 		return errors.New("v is not ptr")
 	}
 
@@ -61,5 +61,5 @@ func (this *client) Query(v interface{}, sql string, args ...interface{}) error 
 		return err
 	}
 
-	return convert(rows, v)
+	return convert(rows, vvPtr)
 }

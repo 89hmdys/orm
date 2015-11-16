@@ -38,9 +38,9 @@ func (this *transaction) Query(v interface{}, sql string, args ...interface{}) e
 
 	newSql, newArgs := analysisSQL(sql, args)
 
-	vt := reflect.TypeOf(v)
+	vv := reflect.ValueOf(v)
 
-	if vt.Kind() != reflect.Ptr {
+	if vv.Kind() != reflect.Ptr {
 		return errors.New("v is not ptr")
 	}
 
@@ -57,5 +57,5 @@ func (this *transaction) Query(v interface{}, sql string, args ...interface{}) e
 		return err
 	}
 
-	return convert(rows, v)
+	return convert(rows, vv)
 }

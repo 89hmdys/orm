@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	. "orm"
+	. "github.com/89hmdys/orm"
 	"reflect"
 	"regexp"
 	"strings"
@@ -17,6 +17,9 @@ const (
 	defaultMaxOpen int    = 100
 	driver         string = "mysql"
 	prefix         string = "#"
+
+	boolName string = "bool"
+	timeName string = "Time"
 )
 
 var analysisSQLRegexp *regexp.Regexp
@@ -45,38 +48,33 @@ func NewDefault(connStr string) (Client, error) {
 	return &client{Connection: connection}, nil
 }
 
-func buildElement(elemType reflect.Type, keys []string, values []interface{}) (reflect.Value, error) {
+func buildElement(elem reflect.Value, keys []string, values []interface{}) error {
 
-	switch elemType.Kind() {
+	switch elem.Kind() {
 	case reflect.Map:
 		{
-			elemValue := reflect.MakeMap(elemType)
-
 			for i, k := range keys {
 
 				v := reflect.ValueOf(values[i])
 
 				if v.Kind() == reflect.Slice {
-					elemValue.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(string(v.Interface().([]byte))))
+					elem.SetMapIndex(reflect.ValueOf(k), reflect.ValueOf(string(v.Interface().([]byte))))
 				} else {
-					elemValue.SetMapIndex(reflect.ValueOf(k), v)
+					elem.SetMapIndex(reflect.ValueOf(k), v)
 				}
 			}
-
-			return elemValue, nil
 		}
 	case reflect.Struct:
 		{
-			elemValue := reflect.New(elemType)
 			for i, k := range keys {
 
 				v := reflect.ValueOf(values[i])
 
-				field := elemValue.FieldByName(k)
+				field := elem.FieldByName(k)
 
 				if field.CanSet() {
 					switch field.Type().Name() {
-					case "bool":
+					case boolName:
 						{
 							val, ok := v.Interface().(int64)
 							if !ok {
@@ -84,9 +82,9 @@ func buildElement(elemType reflect.Type, keys []string, values []interface{}) (r
 							}
 							field.SetBool(val == true)
 						}
-					case "Time":
+					case timeName:
 						{
-							fieldType, _ := elemType.FieldByName(k)
+							fieldType, _ := elem.Type().FieldByName(k)
 
 							format := fieldType.Tag.Get("format")
 
@@ -114,18 +112,40 @@ func buildElement(elemType reflect.Type, keys []string, values []interface{}) (r
 					errors.New(fmt.Sprintf("orm error:%s set fail", k))
 				}
 			}
-			return elemValue, nil
 		}
 	default:
 		{
-			return reflect.Value{}, errors.New("orm error:only support struct and map as element")
+			switch elem.Type().Name() {
+			case boolName:
+				{
+					val, ok := reflect.ValueOf(values[0]).Interface().(int64)
+					if !ok {
+						errors.New("orm error:convert to bool fail,database field must be number")
+					}
+					elem.SetBool(val == true)
+				}
+			case timeName:
+				{
+					return errors.New("orm error:unsupport time.Time for single v")
+				}
+			default:
+				{
+					//TODO 不支持int8 int16 int32 int 预测同样情况也存在于float8 float16 float32 float,需要支持
+					v := reflect.ValueOf(values[0])
+					if v.Kind() == reflect.Slice {
+						elem.SetString(string(v.Interface().([]byte)))
+					} else {
+						elem.Set(v)
+					}
+
+				}
+			}
 		}
 	}
+	return nil
 }
 
-func convert(rows *sql.Rows, v interface{}) error {
-
-	vt := reflect.TypeOf(v)
+func convert(rows *sql.Rows, vvPtr reflect.Value) error {
 
 	cols, err := rows.Columns()
 	if err != nil {
@@ -140,10 +160,10 @@ func convert(rows *sql.Rows, v interface{}) error {
 		scanArgs[i] = &values[i]
 	}
 
-	switch vt.Elem().Kind() {
+	switch vvPtr.Elem().Kind() {
 	case reflect.Slice:
 		{
-			elemType := vt.Elem().Elem()
+			elemType := vvPtr.Type().Elem().Elem()
 			sliceType := reflect.SliceOf(elemType)
 			newSlice := reflect.MakeSlice(sliceType, 0, 0)
 
@@ -151,15 +171,27 @@ func convert(rows *sql.Rows, v interface{}) error {
 				if err := rows.Scan(scanArgs...); err != nil {
 					return err
 				}
-				elemValue, err := buildElement(elemType, cols, values)
 
+				var elem reflect.Value
+				switch elemType.Kind() {
+				case reflect.Map:
+					{
+						elem = reflect.MakeMap(elemType)
+					}
+				default:
+					{
+						elem = reflect.New(elemType).Elem()
+					}
+				}
+
+				err := buildElement(elem, cols, values)
 				if err != nil {
 					return err
 				}
 
-				newSlice = reflect.Append(newSlice, elemValue)
+				newSlice = reflect.Append(newSlice, elem)
 			}
-			reflect.ValueOf(v).Elem().Set(newSlice)
+			vvPtr.Elem().Set(newSlice)
 		}
 	case reflect.Map, reflect.Struct:
 		{
@@ -167,12 +199,11 @@ func convert(rows *sql.Rows, v interface{}) error {
 				if err := rows.Scan(scanArgs...); err != nil {
 					return err
 				}
-				elemValue, err := buildElement(vt, cols, values)
+				err := buildElement(vvPtr.Elem(), cols, values)
 
 				if err != nil {
 					return err
 				}
-				reflect.ValueOf(v).Elem().Set(elemValue)
 			}
 		}
 	default:
@@ -185,7 +216,11 @@ func convert(rows *sql.Rows, v interface{}) error {
 				if err := rows.Scan(scanArgs...); err != nil {
 					return err
 				}
-				reflect.ValueOf(v).Elem().Set(reflect.ValueOf(values[0]))
+				err := buildElement(vvPtr.Elem(), cols, values)
+
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -216,12 +251,12 @@ func analysisSQL(sql string, args []interface{}) (string, []interface{}) {
 			switch argValue.Kind() {
 			case reflect.Ptr:
 				{
-					panic("can not be ptr")
+					panic("orm error:args can not be ptr")
 				}
 			case reflect.Struct:
 				{
 					if len(keys) != argValue.NumField() {
-						panic(fmt.Sprintf("sql: expected %d arguments, got %d", want, len(args)))
+						panic(fmt.Sprintf("orm error:expected %d arguments, got %d", want, len(args)))
 					}
 
 					for _, v := range keys {
@@ -231,7 +266,7 @@ func analysisSQL(sql string, args []interface{}) (string, []interface{}) {
 			case reflect.Map:
 				{
 					if len(keys) != argValue.Len() {
-						panic(fmt.Sprintf("sql: expected %d arguments, got %d", want, len(args)))
+						panic(fmt.Sprintf("orm error:expected %d arguments, got %d", want, len(args)))
 					}
 
 					for _, v := range keys {
@@ -242,7 +277,7 @@ func analysisSQL(sql string, args []interface{}) (string, []interface{}) {
 			default:
 				{
 					if len(keys) != argsLen {
-						panic(fmt.Sprintf("sql: expected %d arguments, got %d", want, len(args)))
+						panic(fmt.Sprintf("orm error:expected %d arguments, got %d", want, len(args)))
 					}
 					argArray = args
 				}
@@ -252,7 +287,7 @@ func analysisSQL(sql string, args []interface{}) (string, []interface{}) {
 	default:
 		{
 			if len(keys) != argsLen {
-				panic(fmt.Sprintf("sql: expected %d arguments, got %d", want, len(args)))
+				panic(fmt.Sprintf("orm error:expected %d arguments, got %d", want, len(args)))
 			}
 			return sql, args
 		}
