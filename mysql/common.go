@@ -6,9 +6,11 @@ import (
 	"fmt"
 	. "orm"
 	"reflect"
+	"time"
 )
 
 const (
+	true           int64  = 1
 	defaultMaxIdle int    = 10
 	defaultMaxOpen int    = 100
 	driver         string = "mysql"
@@ -35,8 +37,6 @@ func NewDefault(connStr string) (Client, error) {
 }
 
 func buildElement(elemType reflect.Type, keys []string, values []interface{}) (reflect.Value, error) {
-
-	//TODO 还对Struct需要支持bool,datetime,关于datetime，考虑在属性后新增tag写明转换格式
 
 	switch elemType.Kind() {
 	case reflect.Map:
@@ -66,10 +66,40 @@ func buildElement(elemType reflect.Type, keys []string, values []interface{}) (r
 				field := elemValue.FieldByName(k)
 
 				if field.CanSet() {
-					if v.Kind() == reflect.Slice {
-						field.SetString(string(v.Interface().([]byte)))
-					} else {
-						field.Set(v)
+					switch field.Type().Name() {
+					case "bool":
+						{
+							val, ok := v.Interface().(int64)
+							if !ok {
+								panic("convert to bool fail,database field is not number")
+							}
+							field.SetBool(val == true)
+						}
+					case "Time":
+						{
+							fieldType, _ := elemType.FieldByName(k)
+
+							format := fieldType.Tag.Get("format")
+
+							if format == "" {
+								panic("no specified date format")
+							}
+
+							datetime, err := time.ParseInLocation(format, string(v.Interface().([]byte)), time.Local)
+							if err != nil {
+								panic("parse fail , check your format")
+							}
+
+							field.Set(reflect.ValueOf(datetime))
+						}
+					default:
+						{
+							if v.Kind() == reflect.Slice {
+								field.SetString(string(v.Interface().([]byte)))
+							} else {
+								field.Set(v)
+							}
+						}
 					}
 				} else {
 					errors.New(fmt.Sprintf("%s can not set", k))

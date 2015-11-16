@@ -36,6 +36,7 @@ func (this *client) Execute(query string, args ...interface{}) (sql.Result, erro
 }
 
 func (this *client) Query(v interface{}, sql string, args ...interface{}) error {
+
 	vt := reflect.TypeOf(v)
 
 	if vt.Kind() != reflect.Ptr {
