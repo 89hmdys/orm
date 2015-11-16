@@ -6,14 +6,18 @@ import (
 	"fmt"
 	. "orm"
 	"reflect"
+	"regexp"
+	"strings"
 	"time"
 )
 
 const (
-	true           int64  = 1
-	defaultMaxIdle int    = 10
-	defaultMaxOpen int    = 100
-	driver         string = "mysql"
+	true              int64          = 1
+	defaultMaxIdle    int            = 10
+	defaultMaxOpen    int            = 100
+	driver            string         = "mysql"
+	prefix            string         = "#"
+	analysisSQLRegexp *regexp.Regexp = regexp.MustCompile("(?#[a-zA-Z0-9]+)")
 )
 
 func New(connStr string, maxIdle, maxOpen int) (Client, error) {
@@ -184,7 +188,58 @@ func convert(rows *sql.Rows, v interface{}) error {
 	return nil
 }
 
+func analysisSQL(sql string, args ...interface{}) (string, []interface{}) {
+
+	keys := analysisSQLRegexp.FindAllString(sql, -1)
+
+	sql = analysisSQLRegexp.ReplaceAllString(sql, "?")
+
+	len := len(args)
+
+	switch len {
+	case 0:
+		{
+			break
+		}
+	case 1:
+		{
+			argValue := reflect.ValueOf(args[0])
+			var argArray []interface{}
+			switch argValue.Kind() {
+			case reflect.Ptr:
+				{
+					panic("can not be ptr")
+				}
+			case reflect.Struct:
+				{
+					for _, v := range keys {
+						argArray = append(argArray, argValue.FieldByName(strings.TrimPrefix(v, prefix)).Interface())
+					}
+				}
+			case reflect.Map:
+				{
+					for _, v := range keys {
+						key := reflect.ValueOf(strings.TrimPrefix(v, prefix))
+						argArray = append(argArray, argValue.MapIndex(key).Interface())
+					}
+				}
+			default:
+				{
+					argArray = append(argArray, args[0])
+				}
+			}
+			return sql, argArray
+		}
+	default:
+		{
+			return sql, args
+		}
+	}
+
+}
+
 func execute(stmt *sql.Stmt, args ...interface{}) (sql.Result, error) {
+
 	res, err := stmt.Exec(args...)
 	if err != nil {
 		return nil, err

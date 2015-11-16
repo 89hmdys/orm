@@ -5,6 +5,7 @@ import (
 	"errors"
 	. "orm"
 	"reflect"
+	"strings"
 )
 
 type client struct {
@@ -24,8 +25,11 @@ func (this *client) Close() error {
 	return this.Connection.Close()
 }
 
-func (this *client) Execute(query string, args ...interface{}) (sql.Result, error) {
-	stmt, err := this.Connection.Prepare(query)
+func (this *client) Execute(sql string, args ...interface{}) (sql.Result, error) {
+
+	newSql, args := analysisSQL(sql, args...)
+
+	stmt, err := this.Connection.Prepare(newSql)
 	if err != nil {
 		return nil, err
 	}
