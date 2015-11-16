@@ -18,8 +18,8 @@ const (
 	driver         string = "mysql"
 	prefix         string = "#"
 
-	boolName string = "bool"
-	timeName string = "Time"
+	boolean  string = "bool"
+	datetime string = "Time"
 )
 
 var analysisSQLRegexp *regexp.Regexp
@@ -48,6 +48,33 @@ func NewDefault(connStr string) (Client, error) {
 	return &client{Connection: connection}, nil
 }
 
+func setValue(elem reflect.Value, value reflect.Value) error {
+	switch elem.Type().Name() {
+	case boolean:
+		{
+			val, ok := value.Interface().(int64)
+			if !ok {
+				errors.New("orm error:convert to bool fail,database field must be number")
+			}
+			elem.SetBool(val == true)
+		}
+	case datetime:
+		{
+			return errors.New("orm error:unsupport time.Time for single v")
+		}
+	default:
+		{
+			//TODO 不支持int8 int16 int32 int 预测同样情况也存在于float8 float16 float32 float,需要支持
+			if value.Kind() == reflect.Slice {
+				elem.SetString(string(value.Interface().([]byte)))
+			} else {
+				elem.Set(value)
+			}
+		}
+	}
+	return nil
+}
+
 func buildElement(elem reflect.Value, keys []string, values []interface{}) error {
 
 	switch elem.Kind() {
@@ -74,15 +101,7 @@ func buildElement(elem reflect.Value, keys []string, values []interface{}) error
 
 				if field.CanSet() {
 					switch field.Type().Name() {
-					case boolName:
-						{
-							val, ok := v.Interface().(int64)
-							if !ok {
-								errors.New("orm error:convert to bool fail,database field must be number")
-							}
-							field.SetBool(val == true)
-						}
-					case timeName:
+					case datetime:
 						{
 							fieldType, _ := elem.Type().FieldByName(k)
 
@@ -101,10 +120,9 @@ func buildElement(elem reflect.Value, keys []string, values []interface{}) error
 						}
 					default:
 						{
-							if v.Kind() == reflect.Slice {
-								field.SetString(string(v.Interface().([]byte)))
-							} else {
-								field.Set(v)
+							err := setValue(elem, v)
+							if err != nil {
+								return err
 							}
 						}
 					}
@@ -115,30 +133,9 @@ func buildElement(elem reflect.Value, keys []string, values []interface{}) error
 		}
 	default:
 		{
-			switch elem.Type().Name() {
-			case boolName:
-				{
-					val, ok := reflect.ValueOf(values[0]).Interface().(int64)
-					if !ok {
-						errors.New("orm error:convert to bool fail,database field must be number")
-					}
-					elem.SetBool(val == true)
-				}
-			case timeName:
-				{
-					return errors.New("orm error:unsupport time.Time for single v")
-				}
-			default:
-				{
-					//TODO 不支持int8 int16 int32 int 预测同样情况也存在于float8 float16 float32 float,需要支持
-					v := reflect.ValueOf(values[0])
-					if v.Kind() == reflect.Slice {
-						elem.SetString(string(v.Interface().([]byte)))
-					} else {
-						elem.Set(v)
-					}
-
-				}
+			err := setValue(elem, reflect.ValueOf(values[0]))
+			if err != nil {
+				return err
 			}
 		}
 	}
