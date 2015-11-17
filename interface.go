@@ -1,6 +1,8 @@
 package orm
 
-import "database/sql"
+import (
+	"database/sql"
+)
 
 type Tx interface {
 	SqlCommand
@@ -9,8 +11,12 @@ type Tx interface {
 }
 
 type SqlCommand interface {
-	Execute(query string, args ...interface{}) (sql.Result, error)
-	Query(ptr interface{}, sql string, args ...interface{}) error
+	Execute(query string, sqlParameter interface{}) (sql.Result, error)
+	Query(ptr interface{}, sql string, sqlParameter interface{}) error
+}
+
+type SqlParameter interface {
+	Set(key string, value interface{}) SqlParameter
 }
 
 type Client interface {

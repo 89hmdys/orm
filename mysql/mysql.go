@@ -24,9 +24,9 @@ func (this *client) Close() error {
 	return this.Connection.Close()
 }
 
-func (this *client) Execute(sql string, args ...interface{}) (sql.Result, error) {
+func (this *client) Execute(sql string, sqlParameter interface{}) (sql.Result, error) {
 
-	newSql, newArgs := analysisSQL(sql, args)
+	newSql, newArgs := analysisSQL(sql, sqlParameter)
 
 	stmt, err := this.Connection.Prepare(newSql)
 	if err != nil {
@@ -35,12 +35,12 @@ func (this *client) Execute(sql string, args ...interface{}) (sql.Result, error)
 
 	defer stmt.Close()
 
-	return execute(stmt, newArgs...)
+	return execute(stmt, newArgs)
 }
 
-func (this *client) Query(v interface{}, sql string, args ...interface{}) error {
+func (this *client) Query(v interface{}, sql string, sqlParameter interface{}) error {
 
-	newSql, newArgs := analysisSQL(sql, args)
+	newSql, newArgs := analysisSQL(sql, sqlParameter)
 
 	vvPtr := reflect.ValueOf(v)
 

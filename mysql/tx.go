@@ -23,20 +23,23 @@ func (this *transaction) Fail() {
 	this.success = false
 }
 
-func (this *transaction) Execute(query string, args ...interface{}) (sql.Result, error) {
-	stmt, err := this.Tx.Prepare(query)
+func (this *transaction) Execute(sql string, sqlParameter interface{}) (sql.Result, error) {
+
+	newSql, newArgs := analysisSQL(sql, sqlParameter)
+
+	stmt, err := this.Tx.Prepare(newSql)
 	if err != nil {
 		return nil, err
 	}
 
 	defer stmt.Close()
 
-	return execute(stmt, args)
+	return execute(stmt, newArgs)
 }
 
-func (this *transaction) Query(v interface{}, sql string, args ...interface{}) error {
+func (this *transaction) Query(v interface{}, sql string, sqlParameter interface{}) error {
 
-	newSql, newArgs := analysisSQL(sql, args)
+	newSql, newArgs := analysisSQL(sql, sqlParameter)
 
 	vv := reflect.ValueOf(v)
 

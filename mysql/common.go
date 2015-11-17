@@ -232,75 +232,72 @@ func convert(rows *sql.Rows, vvPtr reflect.Value) error {
 	return nil
 }
 
-func analysisSQL(sql string, args []interface{}) (string, []interface{}) {
+func analysisSQL(sql string, args interface{}) (string, []interface{}) {
 
 	keys := analysisSQLRegexp.FindAllString(sql, -1)
 
 	sql = analysisSQLRegexp.ReplaceAllString(sql, "?")
 
-	argsLen := len(args)
-
 	want := len(keys)
 
-	switch argsLen {
-	case 0:
+	var argArray []interface{}
+
+	argValue := reflect.ValueOf(args)
+
+	switch argValue.Kind() {
+	case reflect.Ptr:
 		{
-			break
+			panic("orm error:args can not be ptr")
 		}
-	case 1:
+	case reflect.Struct:
 		{
-			var argArray []interface{}
-
-			argValue := reflect.ValueOf(args[0])
-
-			switch argValue.Kind() {
-			case reflect.Ptr:
-				{
-					panic("orm error:args can not be ptr")
-				}
-			case reflect.Struct:
-				{
-					if len(keys) != argValue.NumField() {
-						panic(fmt.Sprintf("orm error:expected %d arguments, got %d", want, len(args)))
-					}
-
-					for _, v := range keys {
-						argArray = append(argArray, argValue.FieldByName(strings.TrimPrefix(v, prefix)).Interface())
-					}
-				}
-			case reflect.Map:
-				{
-					if len(keys) != argValue.Len() {
-						panic(fmt.Sprintf("orm error:expected %d arguments, got %d", want, len(args)))
-					}
-
-					for _, v := range keys {
-						key := reflect.ValueOf(strings.TrimPrefix(v, prefix))
-						argArray = append(argArray, argValue.MapIndex(key).Interface())
-					}
-				}
-			default:
-				{
-					if len(keys) != argsLen {
-						panic(fmt.Sprintf("orm error:expected %d arguments, got %d", want, len(args)))
-					}
-					argArray = args
-				}
+			if len(keys) != argValue.NumField() {
+				panic(fmt.Sprintf("orm error:expected %d arguments, got %d", want, argValue.NumField()))
 			}
-			return sql, argArray
+
+			for _, v := range keys {
+				var vv interface{}
+
+				field := argValue.FieldByName(strings.TrimPrefix(v, prefix))
+
+				switch field.Type().Name() {
+				case boolean:
+					{
+						if field.Interface().(bool) {
+							vv = 1
+						} else {
+							vv = 0
+						}
+					}
+				default:
+					{
+						vv = field.Interface()
+					}
+				}
+
+				argArray = append(argArray, vv)
+			}
+		}
+	case reflect.Map:
+		{
+			if len(keys) != argValue.Len() {
+				panic(fmt.Sprintf("orm error:expected %d arguments, got %d", want, argValue.Len()))
+			}
+
+			for _, v := range keys {
+				key := reflect.ValueOf(strings.TrimPrefix(v, prefix))
+				argArray = append(argArray, argValue.MapIndex(key).Interface())
+			}
 		}
 	default:
 		{
-			if len(keys) != argsLen {
-				panic(fmt.Sprintf("orm error:expected %d arguments, got %d", want, len(args)))
-			}
-			return sql, args
+			panic("orm error:only SqlParameter or Struct can be treat as sqlParameter")
 		}
 	}
-	return sql, args
+	return sql, argArray
 }
 
-func execute(stmt *sql.Stmt, args ...interface{}) (sql.Result, error) {
+func execute(stmt *sql.Stmt, args []interface{}) (sql.Result, error) {
 
 	res, err := stmt.Exec(args...)
 	if err != nil {
