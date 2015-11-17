@@ -48,27 +48,40 @@ func NewDefault(connStr string) (Client, error) {
 	return &client{Connection: connection}, nil
 }
 
-func setValue(elem reflect.Value, value reflect.Value) error {
-	switch elem.Type().Name() {
+type element struct {
+	Value  reflect.Value
+	Format string
+}
+
+func setValue(elem element, value reflect.Value) error {
+	switch elem.Value.Type().Name() {
 	case boolean:
 		{
 			val, ok := value.Interface().(int64)
 			if !ok {
 				errors.New("orm error:convert to bool fail,database field must be number")
 			}
-			elem.SetBool(val == true)
+			elem.Value.SetBool(val == true)
 		}
 	case datetime:
 		{
-			return errors.New("orm error:unsupport time.Time for single v")
+			if elem.Format == "" {
+				errors.New("orm error:no specified date format")
+			}
+
+			datetime, err := time.ParseInLocation(elem.Format, string(value.Interface().([]byte)), time.Local)
+			if err != nil {
+				errors.New(fmt.Sprintf("orm error:parse time fail,%s", err.Error()))
+			}
+			elem.Value.Set(reflect.ValueOf(datetime))
 		}
 	default:
 		{
 			//TODO 不支持int8 int16 int32 int 预测同样情况也存在于float8 float16 float32 float,需要支持
 			if value.Kind() == reflect.Slice {
-				elem.SetString(string(value.Interface().([]byte)))
+				elem.Value.SetString(string(value.Interface().([]byte)))
 			} else {
-				elem.Set(value)
+				elem.Value.Set(value)
 			}
 		}
 	}
@@ -107,20 +120,15 @@ func buildElement(elem reflect.Value, keys []string, values []interface{}) error
 
 							format := fieldType.Tag.Get("format")
 
-							if format == "" {
-								errors.New("orm error:no specified date format")
-							}
-
-							datetime, err := time.ParseInLocation(format, string(v.Interface().([]byte)), time.Local)
+							err := setValue(element{Value: field, Format: format}, v)
 							if err != nil {
-								errors.New(fmt.Sprintf("orm error:parse time fail,%s", err.Error()))
+								return err
 							}
 
-							field.Set(reflect.ValueOf(datetime))
 						}
 					default:
 						{
-							err := setValue(elem, v)
+							err := setValue(element{Value: field}, v)
 							if err != nil {
 								return err
 							}
@@ -133,7 +141,7 @@ func buildElement(elem reflect.Value, keys []string, values []interface{}) error
 		}
 	default:
 		{
-			err := setValue(elem, reflect.ValueOf(values[0]))
+			err := setValue(element{Value: elem}, reflect.ValueOf(values[0]))
 			if err != nil {
 				return err
 			}
